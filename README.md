@@ -26,29 +26,29 @@ Make sure `~/.local/bin` is in your `PATH`.
 Create and log in to an account profile:
 
 ```sh
-cx i main
-cx l main
-cx r main
+cx init main
+cx login main
+cx run main
 ```
 
 Create and log in to an API-key profile:
 
 ```sh
-cx i api
-printenv OPENAI_API_KEY | cx l api --api-key
-cx r api
+cx init api
+printenv OPENAI_API_KEY | cx login api --api-key
+cx run api
 ```
 
 View profile status:
 
 ```sh
-cx s --all
+cx status --all
 ```
 
 Switch the current shell to a profile:
 
 ```sh
-eval "$(cx sw main)"
+eval "$(cx switch main)"
 codex
 ```
 
@@ -57,11 +57,11 @@ codex
 Short form:
 
 ```sh
-cx i <name>                 # init
-cx l <name> [--api-key]     # login
-cx s [<name>|--all]         # status
-cx r <name> [codex args...] # run codex with profile
-cx sw <name>                # print export CODEX_HOME=...
+cx init <name>
+cx login <name> [--api-key]
+cx status [<name>|--all]
+cx run <name> [codex args...]
+cx switch <name>
 ```
 
 Long form:
@@ -88,7 +88,7 @@ Profiles are stored in:
 You can override this:
 
 ```sh
-CODEX_PROFILE_ROOT=/path/to/profiles cx s --all
+CODEX_PROFILE_ROOT=/path/to/profiles cx status --all
 ```
 
 By default, new profiles copy non-sensitive config from:
@@ -100,13 +100,13 @@ By default, new profiles copy non-sensitive config from:
 Override the source:
 
 ```sh
-CODEX_PROFILE_SOURCE=/path/to/source cx i work
+CODEX_PROFILE_SOURCE=/path/to/source cx init work
 ```
 
 Skip config copying:
 
 ```sh
-cx i clean --no-copy-config
+cx init clean --no-copy-config
 ```
 
 ## Security Notes

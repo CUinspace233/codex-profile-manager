@@ -9,11 +9,11 @@ usage() {
 codex-profile: manage isolated Codex login profiles
 
 Usage:
-  cx i <name>                 # init
-  cx l <name> [--api-key]     # login
-  cx s [<name>|--all]         # status
-  cx r <name> [codex args...] # run
-  cx sw <name>                # print shell export
+  cx init <name>
+  cx login <name> [--api-key]
+  cx status [<name>|--all]
+  cx run <name> [codex args...]
+  cx switch <name>
 
 Long form:
   codex-profile init <name> [--no-copy-config]
@@ -26,12 +26,12 @@ Long form:
   codex-profile path <name>
 
 Examples:
-  cx i main
-  cx l main
-  printenv OPENAI_API_KEY | cx l api --api-key
-  cx r main
-  cx r api exec "summarize this repo"
-  eval "$(cx sw main)"
+  cx init main
+  cx login main
+  printenv OPENAI_API_KEY | cx login api --api-key
+  cx run main
+  cx run api exec "summarize this repo"
+  eval "$(cx switch main)"
 
 Environment:
   CODEX_PROFILE_ROOT     Profile directory root, default: ~/.codex-profiles
@@ -153,7 +153,7 @@ case "$cmd" in
   help|-h|--help)
     usage
     ;;
-  init|i|new)
+  init|new)
     name="${1:-}"
     need_name "$name"
     shift || true
@@ -167,7 +167,7 @@ case "$cmd" in
     done
     init_profile "$name" "$copy_config"
     ;;
-  login|l)
+  login)
     name="${1:-}"
     need_name "$name"
     shift || true
@@ -181,7 +181,7 @@ case "$cmd" in
     done
     login_profile "$name" "$mode"
     ;;
-  status|s|ls)
+  status|ls)
     if [[ "${1:-}" == "--all" || $# -eq 0 ]]; then
       list_profiles
     else
@@ -193,13 +193,13 @@ case "$cmd" in
   list)
     list_profiles
     ;;
-  run|r|use)
+  run|use)
     name="${1:-}"
     need_name "$name"
     shift || true
     run_profile "$name" "$@"
     ;;
-  switch|sw)
+  switch)
     name="${1:-}"
     need_name "$name"
     switch_profile "$name"
@@ -209,7 +209,7 @@ case "$cmd" in
     need_name "$name"
     printf '%s\n' "$(profile_dir "$name")"
     ;;
-  shell-aliases|aliases|a)
+  shell-aliases|aliases)
     shell_aliases
     ;;
   *)
