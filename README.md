@@ -1,10 +1,18 @@
 # Codex Profile Manager
 
-Small CLI helper for switching Codex CLI authentication profiles.
+Small CLI helper for using multiple Codex CLI logins on the same machine.
 
-It isolates each login under its own `CODEX_HOME`, so you can switch between
-multiple ChatGPT accounts or an API-key profile without overwriting
-`~/.codex/auth.json`.
+Use it to keep several ChatGPT account logins and API-key logins side by side,
+then launch Codex with the profile you want:
+
+```sh
+cx run personal
+cx run work
+cx run api
+```
+
+Each profile gets its own isolated `CODEX_HOME`, so logging in to one account
+does not overwrite another account or API-key profile.
 
 ## Install
 
@@ -23,19 +31,28 @@ Make sure `~/.local/bin` is in your `PATH`.
 
 ## Quick Start
 
-Create and log in to an account profile:
+Create two account profiles:
 
 ```sh
-cx init main
-cx login main
-cx run main
+cx init personal
+cx login personal
+
+cx init work
+cx login work
 ```
 
-Create and log in to an API-key profile:
+Create an API-key profile:
 
 ```sh
 cx init api
 printenv OPENAI_API_KEY | cx login api --api-key
+```
+
+Run Codex with any profile:
+
+```sh
+cx run personal
+cx run work
 cx run api
 ```
 
@@ -48,8 +65,23 @@ cx status --all
 Switch the current shell to a profile:
 
 ```sh
-eval "$(cx switch main)"
+eval "$(cx switch personal)"
 codex
+```
+
+## Existing Login
+
+The tool does not automatically copy your current `~/.codex/auth.json` into a
+profile. Authentication files contain sensitive tokens, so importing an existing
+login should be an explicit action.
+
+To turn your current Codex login into the `main` profile:
+
+```sh
+cx init main
+cp ~/.codex/auth.json ~/.codex-profiles/main/auth.json
+chmod 600 ~/.codex-profiles/main/auth.json
+cx status main
 ```
 
 ## Commands
