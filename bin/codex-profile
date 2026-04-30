@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${CODEX_PROFILE_ROOT:-$HOME/.codex-profiles}"
+SOURCE="${CODEX_PROFILE_SOURCE:-$HOME/.codex}"
+
+usage() {
+  cat <<'EOF'
+codex-profile: manage isolated Codex login profiles
+
+Usage:
+  cx i <name>                 # init
+  cx l <name> [--api-key]     # login
+  cx s [<name>|--all]         # status
+  cx r <name> [codex args...] # run
+  cx sw <name>                # print shell export
+
+Long form:
+  codex-profile init <name> [--no-copy-config]
+  codex-profile login <name> [--api-key]
+  codex-profile status [<name>|--all]
+  codex-profile list
+  codex-profile run <name> [codex args...]
+  codex-profile switch <name>
+  codex-profile shell-aliases
+  codex-profile path <name>
+
+Examples:
+  cx i main
+  cx l main
+  printenv OPENAI_API_KEY | cx l api --api-key
+  cx r main
+  cx r api exec "summarize this repo"
+  eval "$(cx sw main)"
+
+Environment:
+  CODEX_PROFILE_ROOT     Profile directory root, default: ~/.codex-profiles
+  CODEX_PROFILE_SOURCE   Source config directory, default: ~/.codex
+EOF
+}
+
+die() {
+  printf 'codex-profile: %s\n' "$*" >&2
+  exit 1
+}
+
+need_name() {
+  local name="${1:-}"
+  [[ -n "$name" ]] || die "missing profile name"
+  [[ "$name" != -* ]] || die "invalid profile name: $name"
+  [[ "$name" != *"/"* ]] || die "profile name must not contain /"
+  [[ "$name" != *":"* ]] || die "profile name must not contain :"
+}
+
+profile_dir() {
+  local name="$1"
+  printf '%s/%s\n' "$ROOT" "$name"
+}
+
+ensure_profile() {
+  local name="$1"
+  local dir
+  dir="$(profile_dir "$name")"
+  [[ -d "$dir" ]] || die "profile '$name' does not exist. Run: codex-profile init $name"
+}
+
+init_profile() {
+  local name="$1"
+  local copy_config="${2:-yes}"
+  local dir
+  dir="$(profile_dir "$name")"
+  mkdir -p "$dir"
+  chmod 700 "$dir" 2>/dev/null || true
+
+  if [[ "$copy_config" == "yes" && -f "$SOURCE/config.toml" && ! -e "$dir/config.toml" ]]; then
+    cp "$SOURCE/config.toml" "$dir/config.toml"
+    chmod 600 "$dir/config.toml" 2>/dev/null || true
+    printf 'Initialized %s and copied config.toml from %s\n' "$dir" "$SOURCE"
+  else
+    printf 'Initialized %s\n' "$dir"
+  fi
+}
+
+login_profile() {
+  local name="$1"
+  local mode="${2:-account}"
+  local dir
+  dir="$(profile_dir "$name")"
+  [[ -d "$dir" ]] || init_profile "$name" >/dev/null
+
+  if [[ "$mode" == "api-key" ]]; then
+    CODEX_HOME="$dir" codex login --with-api-key
+  else
+    CODEX_HOME="$dir" codex login
+  fi
+}
+
+status_profile() {
+  local name="$1"
+  local dir
+  dir="$(profile_dir "$name")"
+  printf '%s  %s\n' "$name" "$dir"
+  if CODEX_HOME="$dir" codex login status; then
+    return 0
+  fi
+  return 0
+}
+
+list_profiles() {
+  mkdir -p "$ROOT"
+  local found=0
+  local dir name
+  for dir in "$ROOT"/*; do
+    [[ -d "$dir" ]] || continue
+    found=1
+    name="$(basename "$dir")"
+    status_profile "$name"
+    printf '\n'
+  done
+  [[ "$found" == 1 ]] || printf 'No profiles in %s\n' "$ROOT"
+}
+
+run_profile() {
+  local name="$1"
+  shift || true
+  local dir
+  dir="$(profile_dir "$name")"
+  ensure_profile "$name"
+  CODEX_HOME="$dir" exec codex "$@"
+}
+
+switch_profile() {
+  local name="$1"
+  local dir
+  dir="$(profile_dir "$name")"
+  ensure_profile "$name"
+  printf 'export CODEX_HOME=%q\n' "$dir"
+}
+
+shell_aliases() {
+  cat <<'EOF'
+# Optional aliases for ~/.zshrc.
+alias cmain='CODEX_HOME=$HOME/.codex-profiles/main codex'
+alias cwork='CODEX_HOME=$HOME/.codex-profiles/work codex'
+alias capi='CODEX_HOME=$HOME/.codex-profiles/api codex'
+EOF
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  help|-h|--help)
+    usage
+    ;;
+  init|i|new)
+    name="${1:-}"
+    need_name "$name"
+    shift || true
+    copy_config="yes"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --no-copy-config) copy_config="no" ;;
+        *) die "unknown option for init: $1" ;;
+      esac
+      shift
+    done
+    init_profile "$name" "$copy_config"
+    ;;
+  login|l)
+    name="${1:-}"
+    need_name "$name"
+    shift || true
+    mode="account"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --api-key) mode="api-key" ;;
+        *) die "unknown option for login: $1" ;;
+      esac
+      shift
+    done
+    login_profile "$name" "$mode"
+    ;;
+  status|s|ls)
+    if [[ "${1:-}" == "--all" || $# -eq 0 ]]; then
+      list_profiles
+    else
+      need_name "$1"
+      ensure_profile "$1"
+      status_profile "$1"
+    fi
+    ;;
+  list)
+    list_profiles
+    ;;
+  run|r|use)
+    name="${1:-}"
+    need_name "$name"
+    shift || true
+    run_profile "$name" "$@"
+    ;;
+  switch|sw)
+    name="${1:-}"
+    need_name "$name"
+    switch_profile "$name"
+    ;;
+  path)
+    name="${1:-}"
+    need_name "$name"
+    printf '%s\n' "$(profile_dir "$name")"
+    ;;
+  shell-aliases|aliases|a)
+    shell_aliases
+    ;;
+  *)
+    die "unknown command: $cmd"
+    ;;
+esac

@@ -1,0 +1,9 @@
+.DS_Store
+*.log
+
+# Never commit Codex auth state or local profile data.
+.codex-profiles/
+auth.json
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
