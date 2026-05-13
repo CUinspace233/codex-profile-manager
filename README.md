@@ -45,7 +45,15 @@ Create an API-key profile:
 
 ```sh
 cx init api
+export OPENAI_API_KEY='sk-...'
 printenv OPENAI_API_KEY | cx login api --api-key
+```
+
+`printenv` reads an environment variable by name. If you want to paste the key
+directly instead, use:
+
+```sh
+printf '%s\n' 'sk-...' | cx login api --api-key
 ```
 
 Run Codex with any profile:
