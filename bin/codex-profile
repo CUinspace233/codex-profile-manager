@@ -11,15 +11,17 @@ codex-profile: manage isolated Codex login profiles
 Usage:
   cx init <name>
   cx login <name> [--api-key]
-  cx status [<name>|--all]
+  cx status [<name>]
+  cx delete <name>
   cx run <name> [codex args...]
   cx switch <name>
 
 Long form:
   codex-profile init <name> [--no-copy-config]
   codex-profile login <name> [--api-key]
-  codex-profile status [<name>|--all]
+  codex-profile status [<name>]
   codex-profile list
+  codex-profile delete <name>
   codex-profile run <name> [codex args...]
   codex-profile switch <name>
   codex-profile shell-aliases
@@ -31,6 +33,7 @@ Examples:
   printenv OPENAI_API_KEY | cx login api --api-key
   cx run main
   cx run api exec "summarize this repo"
+  cx delete old-work
   eval "$(cx switch main)"
 
 Environment:
@@ -48,6 +51,7 @@ need_name() {
   local name="${1:-}"
   [[ -n "$name" ]] || die "missing profile name"
   [[ "$name" != -* ]] || die "invalid profile name: $name"
+  [[ "$name" != "." && "$name" != ".." ]] || die "invalid profile name: $name"
   [[ "$name" != *"/"* ]] || die "profile name must not contain /"
   [[ "$name" != *":"* ]] || die "profile name must not contain :"
 }
@@ -118,6 +122,15 @@ list_profiles() {
     printf '\n'
   done
   [[ "$found" == 1 ]] || printf 'No profiles in %s\n' "$ROOT"
+}
+
+delete_profile() {
+  local name="$1"
+  local dir
+  dir="$(profile_dir "$name")"
+  ensure_profile "$name"
+  rm -rf -- "$dir"
+  printf 'Deleted profile %s from %s\n' "$name" "$dir"
 }
 
 run_profile() {
@@ -192,6 +205,11 @@ case "$cmd" in
     ;;
   list)
     list_profiles
+    ;;
+  delete|remove|rm)
+    name="${1:-}"
+    need_name "$name"
+    delete_profile "$name"
     ;;
   run|use)
     name="${1:-}"

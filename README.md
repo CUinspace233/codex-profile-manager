@@ -67,7 +67,13 @@ cx run api
 View profile status:
 
 ```sh
-cx status --all
+cx status
+```
+
+Delete a profile:
+
+```sh
+cx delete old-work
 ```
 
 Switch the current shell to a profile:
@@ -99,7 +105,8 @@ Short form:
 ```sh
 cx init <name>
 cx login <name> [--api-key]
-cx status [<name>|--all]
+cx status [<name>]
+cx delete <name>
 cx run <name> [codex args...]
 cx switch <name>
 ```
@@ -109,8 +116,9 @@ Long form:
 ```sh
 codex-profile init <name> [--no-copy-config]
 codex-profile login <name> [--api-key]
-codex-profile status [<name>|--all]
+codex-profile status [<name>]
 codex-profile list
+codex-profile delete <name>
 codex-profile run <name> [codex args...]
 codex-profile switch <name>
 codex-profile shell-aliases
@@ -128,7 +136,7 @@ Profiles are stored in:
 You can override this:
 
 ```sh
-CODEX_PROFILE_ROOT=/path/to/profiles cx status --all
+CODEX_PROFILE_ROOT=/path/to/profiles cx status
 ```
 
 By default, new profiles copy non-sensitive config from:
