@@ -37,8 +37,8 @@ Create a profile with the guided setup:
 cx setup
 ```
 
-The setup flow handles profile creation, optional `OPENAI_BASE_URL`, and
-account or API-key login. After setup, run Codex with that profile:
+The setup flow handles profile creation, optional OpenAI-compatible base URL,
+and account or API-key login. After setup, run Codex with that profile:
 
 ```sh
 cx run <name>
@@ -187,14 +187,15 @@ Skip config copying:
 cx init clean --no-copy-config
 ```
 
-Per-profile `OPENAI_BASE_URL` overrides are stored in:
+Per-profile base URL overrides are tracked in:
 
 ```sh
 ~/.codex-profiles/<name>/openai_base_url
 ```
 
-When a profile does not have this file, `cx run`, `cx login`, `cx status`, and
-`cx switch` unset `OPENAI_BASE_URL`, so Codex uses its default endpoint.
+When this file is present, `cx run` passes Codex the matching
+`openai_base_url` config override and syncs the same setting into the profile's
+`config.toml`. When it is absent, Codex uses its default endpoint.
 
 When `cx setup` creates an API-key profile, it asks for only a suffix and names
 the profile `api-<suffix>`. For example, suffix `openrouter` creates

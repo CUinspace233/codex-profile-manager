@@ -105,6 +105,69 @@ profile_base_url() {
   printf '%s\n' "$base_url"
 }
 
+toml_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '"%s"\n' "$value"
+}
+
+remove_profile_config_key() {
+  local name="$1"
+  local key="$2"
+  local config_file tmp_file
+  config_file="$(profile_dir "$name")/config.toml"
+  [[ -f "$config_file" ]] || return 0
+  tmp_file="$config_file.tmp.$$"
+  awk -v key="$key" '
+    BEGIN { in_top = 1 }
+    /^[[:space:]]*\[/ { in_top = 0 }
+    in_top && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" { next }
+    { print }
+  ' "$config_file" > "$tmp_file"
+  mv "$tmp_file" "$config_file"
+  chmod 600 "$config_file" 2>/dev/null || true
+}
+
+set_profile_config_key() {
+  local name="$1"
+  local key="$2"
+  local value="$3"
+  local config_file tmp_file quoted
+  config_file="$(profile_dir "$name")/config.toml"
+  tmp_file="$config_file.tmp.$$"
+  quoted="$(toml_string "$value")"
+  remove_profile_config_key "$name" "$key"
+  if [[ -f "$config_file" ]]; then
+    {
+      printf '%s = %s\n' "$key" "$quoted"
+      cat "$config_file"
+    } > "$tmp_file"
+  else
+    printf '%s = %s\n' "$key" "$quoted" > "$tmp_file"
+  fi
+  mv "$tmp_file" "$config_file"
+  chmod 600 "$config_file" 2>/dev/null || true
+}
+
+sync_profile_base_url_config() {
+  local name="$1"
+  local base_url
+  if base_url="$(profile_base_url "$name")"; then
+    set_profile_config_key "$name" "openai_base_url" "$base_url"
+  else
+    remove_profile_config_key "$name" "openai_base_url"
+  fi
+}
+
+codex_config_args() {
+  local name="$1"
+  local base_url
+  if base_url="$(profile_base_url "$name")"; then
+    printf '%s\n' "-c" "openai_base_url=$(toml_string "$base_url")"
+  fi
+}
+
 apply_profile_env() {
   local name="$1"
   local base_url
@@ -236,14 +299,16 @@ set_base_url() {
 
   if [[ "$value" == "--unset" || "$value" == "--default" ]]; then
     rm -f -- "$file"
-    printf 'Unset OPENAI_BASE_URL for profile %s; it will use the default endpoint.\n' "$name"
+    sync_profile_base_url_config "$name"
+    printf 'Unset base URL for profile %s; it will use the default endpoint.\n' "$name"
     return 0
   fi
 
   [[ "$value" != *$'\n'* ]] || die "OPENAI_BASE_URL must be a single line"
   printf '%s\n' "$value" > "$file"
   chmod 600 "$file" 2>/dev/null || true
-  printf 'Set OPENAI_BASE_URL for profile %s\n' "$name"
+  sync_profile_base_url_config "$name"
+  printf 'Set base URL for profile %s\n' "$name"
 }
 
 setup_profile() {
@@ -305,12 +370,12 @@ setup_profile() {
 
   init_profile "$name" "$copy_config"
 
-  printf 'OPENAI_BASE_URL (leave blank for default): '
+  printf 'OpenAI-compatible base URL (leave blank for default): '
   IFS= read -r base_url
   if [[ -n "$base_url" ]]; then
     set_base_url "$name" "$base_url"
   else
-    printf 'Using default OPENAI_BASE_URL.\n'
+    printf 'Using default base URL.\n'
   fi
 
   printf '\n'
@@ -366,10 +431,17 @@ run_profile() {
   local name="$1"
   shift || true
   local dir
+  local config_args=()
   dir="$(profile_dir "$name")"
   ensure_profile "$name"
+  sync_profile_base_url_config "$name"
   apply_profile_env "$name"
-  CODEX_HOME="$dir" exec codex "$@"
+  if [[ -f "$(base_url_file "$name")" ]]; then
+    while IFS= read -r config_arg; do
+      config_args+=("$config_arg")
+    done < <(codex_config_args "$name")
+  fi
+  CODEX_HOME="$dir" exec codex ${config_args[@]+"${config_args[@]}"} "$@"
 }
 
 switch_profile() {
