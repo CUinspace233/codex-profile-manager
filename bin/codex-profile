@@ -9,18 +9,22 @@ usage() {
 codex-profile: manage isolated Codex login profiles
 
 Usage:
+  cx setup
   cx init <name>
   cx login <name> [--api-key]
   cx status [<name>]
+  cx base-url <name> [url|--unset]
   cx delete <name>
   cx run <name> [codex args...]
   cx switch <name>
 
 Long form:
+  codex-profile setup
   codex-profile init <name> [--no-copy-config]
   codex-profile login <name> [--api-key]
   codex-profile status [<name>]
   codex-profile list
+  codex-profile base-url <name> [url|--unset]
   codex-profile delete <name>
   codex-profile run <name> [codex args...]
   codex-profile switch <name>
@@ -28,11 +32,14 @@ Long form:
   codex-profile path <name>
 
 Examples:
+  cx setup
   cx init main
   cx login main
   printenv OPENAI_API_KEY | cx login api --api-key
   cx run main
   cx run api exec "summarize this repo"
+  cx base-url api https://api.example.com/v1
+  cx base-url api --unset
   cx delete old-work
   eval "$(cx switch main)"
 
@@ -49,16 +56,108 @@ die() {
 
 need_name() {
   local name="${1:-}"
-  [[ -n "$name" ]] || die "missing profile name"
-  [[ "$name" != -* ]] || die "invalid profile name: $name"
-  [[ "$name" != "." && "$name" != ".." ]] || die "invalid profile name: $name"
-  [[ "$name" != *"/"* ]] || die "profile name must not contain /"
-  [[ "$name" != *":"* ]] || die "profile name must not contain :"
+  validate_name "$name" || die "$REPLY"
+}
+
+validate_name() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    REPLY="missing profile name"
+    return 1
+  fi
+  if [[ "$name" == -* ]]; then
+    REPLY="invalid profile name: $name"
+    return 1
+  fi
+  if [[ "$name" == "." || "$name" == ".." ]]; then
+    REPLY="invalid profile name: $name"
+    return 1
+  fi
+  if [[ "$name" == *"/"* ]]; then
+    REPLY="profile name must not contain /"
+    return 1
+  fi
+  if [[ "$name" == *":"* ]]; then
+    REPLY="profile name must not contain :"
+    return 1
+  fi
+  return 0
 }
 
 profile_dir() {
   local name="$1"
   printf '%s/%s\n' "$ROOT" "$name"
+}
+
+base_url_file() {
+  local name="$1"
+  printf '%s/openai_base_url\n' "$(profile_dir "$name")"
+}
+
+profile_base_url() {
+  local name="$1"
+  local file
+  local base_url
+  file="$(base_url_file "$name")"
+  [[ -f "$file" ]] || return 1
+  IFS= read -r base_url < "$file" || true
+  [[ -n "${base_url:-}" ]] || return 1
+  printf '%s\n' "$base_url"
+}
+
+apply_profile_env() {
+  local name="$1"
+  local base_url
+  unset OPENAI_BASE_URL
+  if base_url="$(profile_base_url "$name")"; then
+    export OPENAI_BASE_URL="$base_url"
+  fi
+}
+
+prompt_required() {
+  local prompt="$1"
+  local value
+  while true; do
+    printf '%s' "$prompt" >&2
+    IFS= read -r value
+    if [[ -n "$value" ]]; then
+      printf '%s\n' "$value"
+      return 0
+    fi
+    printf 'Please enter a value.\n' >&2
+  done
+}
+
+prompt_yes_no() {
+  local prompt="$1"
+  local default="${2:-yes}"
+  local answer
+  while true; do
+    if [[ "$default" == "yes" ]]; then
+      printf '%s [Y/n] ' "$prompt" >&2
+    else
+      printf '%s [y/N] ' "$prompt" >&2
+    fi
+    IFS= read -r answer
+    case "${answer:-$default}" in
+      y|Y|yes|YES) return 0 ;;
+      n|N|no|NO) return 1 ;;
+      *) printf 'Please answer yes or no.\n' >&2 ;;
+    esac
+  done
+}
+
+prompt_secret() {
+  local prompt="$1"
+  local value
+  if [[ -t 0 ]]; then
+    printf '%s' "$prompt" >&2
+    IFS= read -r -s value
+    printf '\n' >&2
+  else
+    IFS= read -r value
+  fi
+  printf '%s\n' "$value"
 }
 
 ensure_profile() {
@@ -91,6 +190,7 @@ login_profile() {
   local dir
   dir="$(profile_dir "$name")"
   [[ -d "$dir" ]] || init_profile "$name" >/dev/null
+  apply_profile_env "$name"
 
   if [[ "$mode" == "api-key" ]]; then
     CODEX_HOME="$dir" codex login --with-api-key
@@ -102,12 +202,122 @@ login_profile() {
 status_profile() {
   local name="$1"
   local dir
+  local base_url
   dir="$(profile_dir "$name")"
   printf '%s  %s\n' "$name" "$dir"
+  if base_url="$(profile_base_url "$name")"; then
+    printf 'OPENAI_BASE_URL=%s\n' "$base_url"
+  else
+    printf 'OPENAI_BASE_URL=<default>\n'
+  fi
+  apply_profile_env "$name"
   if CODEX_HOME="$dir" codex login status; then
     return 0
   fi
   return 0
+}
+
+set_base_url() {
+  local name="$1"
+  local value="${2:-}"
+  local file
+  local base_url
+  ensure_profile "$name"
+  file="$(base_url_file "$name")"
+
+  if [[ -z "$value" ]]; then
+    if base_url="$(profile_base_url "$name")"; then
+      printf '%s\n' "$base_url"
+    else
+      printf '<default>\n'
+    fi
+    return 0
+  fi
+
+  if [[ "$value" == "--unset" || "$value" == "--default" ]]; then
+    rm -f -- "$file"
+    printf 'Unset OPENAI_BASE_URL for profile %s; it will use the default endpoint.\n' "$name"
+    return 0
+  fi
+
+  [[ "$value" != *$'\n'* ]] || die "OPENAI_BASE_URL must be a single line"
+  printf '%s\n' "$value" > "$file"
+  chmod 600 "$file" 2>/dev/null || true
+  printf 'Set OPENAI_BASE_URL for profile %s\n' "$name"
+}
+
+setup_profile() {
+  local name
+  local copy_config="yes"
+  local base_url
+  local auth_choice
+  local api_key
+  local dir
+
+  printf 'Codex profile setup\n'
+  printf '\n'
+
+  while true; do
+    name="$(prompt_required "Profile name: ")"
+    if validate_name "$name"; then
+      break
+    fi
+    printf '%s\n' "$REPLY" >&2
+  done
+
+  printf '\n'
+  printf 'config.toml stores non-login Codex settings such as model, sandbox,\n'
+  printf 'approval policy, MCP servers, and other CLI preferences.\n'
+  printf 'Copy it if this profile should reuse your current Codex behavior.\n'
+  printf 'Skip it for a clean profile with default settings.\n'
+  printf '\n'
+  if ! prompt_yes_no "Copy config.toml from $SOURCE?" "yes"; then
+    copy_config="no"
+  fi
+
+  init_profile "$name" "$copy_config"
+
+  printf 'OPENAI_BASE_URL (leave blank for default): '
+  IFS= read -r base_url
+  if [[ -n "$base_url" ]]; then
+    set_base_url "$name" "$base_url"
+  else
+    printf 'Using default OPENAI_BASE_URL.\n'
+  fi
+
+  printf '\n'
+  printf 'Login method:\n'
+  printf '  1) ChatGPT account login\n'
+  printf '  2) API key login\n'
+  printf '  3) Skip login\n'
+  while true; do
+    printf 'Choose [1-3]: '
+    IFS= read -r auth_choice
+    case "${auth_choice:-1}" in
+      1)
+        login_profile "$name" "account"
+        break
+        ;;
+      2)
+        dir="$(profile_dir "$name")"
+        api_key="$(prompt_secret "OpenAI API key: ")"
+        [[ -n "$api_key" ]] || die "missing API key"
+        apply_profile_env "$name"
+        printf '%s\n' "$api_key" | CODEX_HOME="$dir" codex login --with-api-key
+        break
+        ;;
+      3)
+        break
+        ;;
+      *)
+        printf 'Please choose 1, 2, or 3.\n' >&2
+        ;;
+    esac
+  done
+
+  printf '\n'
+  printf 'Profile %s is ready.\n' "$name"
+  printf 'Run it with: cx run %s\n' "$name"
 }
 
 list_profiles() {
@@ -139,15 +349,22 @@ run_profile() {
   local dir
   dir="$(profile_dir "$name")"
   ensure_profile "$name"
+  apply_profile_env "$name"
   CODEX_HOME="$dir" exec codex "$@"
 }
 
 switch_profile() {
   local name="$1"
   local dir
+  local base_url
   dir="$(profile_dir "$name")"
   ensure_profile "$name"
   printf 'export CODEX_HOME=%q\n' "$dir"
+  if base_url="$(profile_base_url "$name")"; then
+    printf 'export OPENAI_BASE_URL=%q\n' "$base_url"
+  else
+    printf 'unset OPENAI_BASE_URL\n'
+  fi
 }
 
 shell_aliases() {
@@ -165,6 +382,9 @@ shift || true
 case "$cmd" in
   help|-h|--help)
     usage
+    ;;
+  setup|wizard|configure)
+    setup_profile
     ;;
   init|new)
     name="${1:-}"
@@ -205,6 +425,13 @@ case "$cmd" in
     ;;
   list)
     list_profiles
+    ;;
+  base-url|openai-base-url)
+    name="${1:-}"
+    need_name "$name"
+    shift || true
+    [[ $# -le 1 ]] || die "usage: codex-profile base-url <name> [url|--unset]"
+    set_base_url "$name" "${1:-}"
     ;;
   delete|remove|rm)
     name="${1:-}"

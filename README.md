@@ -31,7 +31,39 @@ Make sure `~/.local/bin` is in your `PATH`.
 
 ## Quick Start
 
-Create two account profiles:
+Create a profile with the guided setup:
+
+```sh
+cx setup
+```
+
+The setup flow handles profile creation, optional `OPENAI_BASE_URL`, and
+account or API-key login. After setup, run Codex with that profile:
+
+```sh
+cx run <name>
+```
+
+For example:
+
+```sh
+cx run personal
+cx run work
+cx run api
+```
+
+View profile status:
+
+```sh
+cx status
+```
+
+## Manual Commands
+
+The guided setup is the normal path. Use these commands when you want to script
+or change a specific part of a profile.
+
+Create account profiles manually:
 
 ```sh
 cx init personal
@@ -41,7 +73,7 @@ cx init work
 cx login work
 ```
 
-Create an API-key profile:
+Create an API-key profile manually:
 
 ```sh
 cx init api
@@ -56,18 +88,11 @@ directly instead, use:
 printf '%s\n' 'sk-...' | cx login api --api-key
 ```
 
-Run Codex with any profile:
+Set or unset a profile-specific API base URL:
 
 ```sh
-cx run personal
-cx run work
-cx run api
-```
-
-View profile status:
-
-```sh
-cx status
+cx base-url api https://api.example.com/v1
+cx base-url api --unset
 ```
 
 Delete a profile:
@@ -103,9 +128,11 @@ cx status main
 Short form:
 
 ```sh
+cx setup
 cx init <name>
 cx login <name> [--api-key]
 cx status [<name>]
+cx base-url <name> [url|--unset]
 cx delete <name>
 cx run <name> [codex args...]
 cx switch <name>
@@ -114,10 +141,12 @@ cx switch <name>
 Long form:
 
 ```sh
+codex-profile setup
 codex-profile init <name> [--no-copy-config]
 codex-profile login <name> [--api-key]
 codex-profile status [<name>]
 codex-profile list
+codex-profile base-url <name> [url|--unset]
 codex-profile delete <name>
 codex-profile run <name> [codex args...]
 codex-profile switch <name>
@@ -156,6 +185,15 @@ Skip config copying:
 ```sh
 cx init clean --no-copy-config
 ```
+
+Per-profile `OPENAI_BASE_URL` overrides are stored in:
+
+```sh
+~/.codex-profiles/<name>/openai_base_url
+```
+
+When a profile does not have this file, `cx run`, `cx login`, `cx status`, and
+`cx switch` unset `OPENAI_BASE_URL`, so Codex uses its default endpoint.
 
 ## Security Notes
 
