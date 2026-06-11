@@ -8,7 +8,7 @@ then launch Codex with the profile you want:
 ```sh
 cx run personal
 cx run work
-cx run api
+cx run api-openrouter
 ```
 
 Each profile gets its own isolated `CODEX_HOME`, so logging in to one account
@@ -49,7 +49,8 @@ For example:
 ```sh
 cx run personal
 cx run work
-cx run api
+cx run api-openrouter
+cx run api-deepseek
 ```
 
 View profile status:
@@ -76,23 +77,23 @@ cx login work
 Create an API-key profile manually:
 
 ```sh
-cx init api
+cx init api-openrouter
 export OPENAI_API_KEY='sk-...'
-printenv OPENAI_API_KEY | cx login api --api-key
+printenv OPENAI_API_KEY | cx login api-openrouter --api-key
 ```
 
 `printenv` reads an environment variable by name. If you want to paste the key
 directly instead, use:
 
 ```sh
-printf '%s\n' 'sk-...' | cx login api --api-key
+printf '%s\n' 'sk-...' | cx login api-openrouter --api-key
 ```
 
 Set or unset a profile-specific API base URL:
 
 ```sh
-cx base-url api https://api.example.com/v1
-cx base-url api --unset
+cx base-url api-openrouter https://api.example.com/v1
+cx base-url api-openrouter --unset
 ```
 
 Delete a profile:
@@ -194,6 +195,10 @@ Per-profile `OPENAI_BASE_URL` overrides are stored in:
 
 When a profile does not have this file, `cx run`, `cx login`, `cx status`, and
 `cx switch` unset `OPENAI_BASE_URL`, so Codex uses its default endpoint.
+
+When `cx setup` creates an API-key profile, it asks for only a suffix and names
+the profile `api-<suffix>`. For example, suffix `openrouter` creates
+`api-openrouter`.
 
 ## Security Notes
 
