@@ -16,6 +16,7 @@ Usage:
   cx base-url <name> [url|--unset]
   cx delete <name>
   cx run <name> [codex args...]
+  cx run <name> resume-from <source> [codex resume args...]
   cx switch <name>
 
 Long form:
@@ -27,6 +28,7 @@ Long form:
   codex-profile base-url <name> [url|--unset]
   codex-profile delete <name>
   codex-profile run <name> [codex args...]
+  codex-profile run <name> resume-from <source> [codex resume args...]
   codex-profile switch <name>
   codex-profile shell-aliases
   codex-profile path <name>
@@ -38,6 +40,7 @@ Examples:
   printenv OPENAI_API_KEY | cx login api-openrouter --api-key
   cx run main
   cx run api-openrouter exec "summarize this repo"
+  cx run api-openrouter resume-from main
   cx base-url api-openrouter https://api.example.com/v1
   cx base-url api-openrouter --unset
   cx delete old-work
@@ -427,6 +430,68 @@ delete_profile() {
   printf 'Deleted profile %s from %s\n' "$name" "$dir"
 }
 
+next_backup_path() {
+  local path="$1"
+  local stamp backup i
+  stamp="$(date +%Y%m%d%H%M%S)"
+  backup="${path}.local.${stamp}"
+  i=1
+  while [[ -e "$backup" || -L "$backup" ]]; do
+    backup="${path}.local.${stamp}.${i}"
+    i=$((i + 1))
+  done
+  printf '%s\n' "$backup"
+}
+
+resume_from_profile() {
+  local target="$1"
+  local source="$2"
+  shift 2 || true
+  local target_dir source_dir target_sessions source_sessions current_link backup
+  local config_args=()
+
+  [[ "$target" != "$source" ]] || die "source and target profiles must be different"
+  ensure_profile "$target"
+  ensure_profile "$source"
+
+  target_dir="$(profile_dir "$target")"
+  source_dir="$(profile_dir "$source")"
+  target_sessions="$target_dir/sessions"
+  source_sessions="$source_dir/sessions"
+
+  [[ -d "$source_sessions" ]] || die "profile '$source' has no sessions directory"
+
+  if [[ -L "$target_sessions" ]]; then
+    current_link="$(readlink "$target_sessions")"
+    if [[ "$current_link" == "$source_sessions" ]]; then
+      printf 'Profile %s already shares sessions from %s\n' "$target" "$source"
+    else
+      backup="$(next_backup_path "$target_sessions")"
+      mv "$target_sessions" "$backup"
+      ln -s "$source_sessions" "$target_sessions"
+      printf 'Moved existing sessions link to %s\n' "$backup"
+      printf 'Profile %s now shares sessions from %s\n' "$target" "$source"
+    fi
+  else
+    if [[ -e "$target_sessions" ]]; then
+      backup="$(next_backup_path "$target_sessions")"
+      mv "$target_sessions" "$backup"
+      printf 'Moved existing sessions to %s\n' "$backup"
+    fi
+    ln -s "$source_sessions" "$target_sessions"
+    printf 'Profile %s now shares sessions from %s\n' "$target" "$source"
+  fi
+
+  sync_profile_base_url_config "$target"
+  apply_profile_env "$target"
+  if [[ -f "$(base_url_file "$target")" ]]; then
+    while IFS= read -r config_arg; do
+      config_args+=("$config_arg")
+    done < <(codex_config_args "$target")
+  fi
+  CODEX_HOME="$target_dir" exec codex ${config_args[@]+"${config_args[@]}"} resume --all "$@"
+}
+
 run_profile() {
   local name="$1"
   shift || true
@@ -434,6 +499,15 @@ run_profile() {
   local config_args=()
   dir="$(profile_dir "$name")"
   ensure_profile "$name"
+
+  if [[ "${1:-}" == "resume-from" ]]; then
+    shift
+    local source="${1:-}"
+    need_name "$source"
+    shift || true
+    resume_from_profile "$name" "$source" "$@"
+  fi
+
   sync_profile_base_url_config "$name"
   apply_profile_env "$name"
   if [[ -f "$(base_url_file "$name")" ]]; then

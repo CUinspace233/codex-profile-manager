@@ -59,6 +59,16 @@ View profile status:
 cx status
 ```
 
+Resume another profile's conversations with the current profile's login and
+configuration:
+
+```sh
+cx run api-openrouter resume-from personal
+```
+
+This opens Codex's interactive resume picker for `personal` sessions while
+running with the `api-openrouter` profile.
+
 ## Manual Commands
 
 The guided setup is the normal path. Use these commands when you want to script
@@ -108,6 +118,19 @@ Switch the current shell to a profile:
 eval "$(cx switch personal)"
 codex
 ```
+
+Resume sessions from another profile:
+
+```sh
+cx run work resume-from personal
+cx run api-openrouter resume-from work --last
+```
+
+`resume-from` links the target profile's `sessions` directory to the source
+profile's `sessions` directory, then runs `codex resume --all`. Authentication,
+base URL, and other config still come from the target profile. If the target
+profile already has its own `sessions` directory, it is moved aside as
+`sessions.local.<timestamp>` before the link is created.
 
 ## Existing Login
 
