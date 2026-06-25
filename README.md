@@ -132,6 +132,11 @@ base URL, and other config still come from the target profile. If the target
 profile already has its own `sessions` directory, it is moved aside as
 `sessions.local.<timestamp>` before the link is created.
 
+If linking the target to the source would create a sessions symlink loop,
+`resume-from` creates a shared profile named `shared-<first>-<second>`, moves
+the real sessions directory there, and points both profiles at the shared
+sessions directory.
+
 ## Existing Login
 
 The tool does not automatically copy your current `~/.codex/auth.json` into a

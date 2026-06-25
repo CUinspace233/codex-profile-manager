@@ -443,11 +443,105 @@ next_backup_path() {
   printf '%s\n' "$backup"
 }
 
+link_target_path() {
+  local path="$1"
+  local link
+  link="$(readlink "$path")" || return 1
+  if [[ "$link" == /* ]]; then
+    printf '%s\n' "$link"
+  else
+    printf '%s/%s\n' "$(dirname "$path")" "$link"
+  fi
+}
+
+sessions_link_reaches() {
+  local start="$1"
+  local target="$2"
+  local current="$start"
+  local depth=0
+
+  while [[ -L "$current" ]]; do
+    [[ "$current" == "$target" ]] && return 0
+    current="$(link_target_path "$current")" || return 1
+    [[ "$current" == "$target" ]] && return 0
+    depth=$((depth + 1))
+    [[ "$depth" -lt 40 ]] || return 2
+  done
+
+  return 1
+}
+
+shared_profile_name() {
+  local first="$1"
+  local second="$2"
+  if [[ "$second" < "$first" ]]; then
+    first="$2"
+    second="$1"
+  fi
+  printf 'shared-%s-%s\n' "$first" "$second"
+}
+
+point_sessions_at() {
+  local name="$1"
+  local shared_sessions="$2"
+  local sessions backup current_link
+
+  sessions="$(profile_dir "$name")/sessions"
+  if [[ -L "$sessions" ]]; then
+    current_link="$(link_target_path "$sessions")"
+    if [[ "$current_link" == "$shared_sessions" ]]; then
+      return 0
+    fi
+    backup="$(next_backup_path "$sessions")"
+    mv "$sessions" "$backup"
+    printf 'Moved existing sessions link for %s to %s\n' "$name" "$backup"
+  elif [[ -e "$sessions" ]]; then
+    backup="$(next_backup_path "$sessions")"
+    mv "$sessions" "$backup"
+    printf 'Moved existing sessions for %s to %s\n' "$name" "$backup"
+  fi
+
+  ln -s "$shared_sessions" "$sessions"
+  printf 'Profile %s now shares sessions from %s\n' "$name" "$shared_sessions"
+}
+
+create_shared_sessions_for_loop() {
+  local target="$1"
+  local source="$2"
+  local target_sessions="$3"
+  local source_sessions="$4"
+  local shared_name shared_dir shared_sessions
+
+  shared_name="$(shared_profile_name "$target" "$source")"
+  shared_dir="$(profile_dir "$shared_name")"
+  shared_sessions="$shared_dir/sessions"
+
+  mkdir -p "$shared_dir"
+  chmod 700 "$shared_dir" 2>/dev/null || true
+
+  if [[ -e "$shared_sessions" || -L "$shared_sessions" ]]; then
+    [[ -d "$shared_sessions" ]] || die "shared profile '$shared_name' sessions path is not a directory"
+    printf 'Using existing shared profile %s\n' "$shared_name"
+  elif [[ -e "$target_sessions" && ! -L "$target_sessions" ]]; then
+    mv "$target_sessions" "$shared_sessions"
+    printf 'Created shared profile %s from %s sessions\n' "$shared_name" "$target"
+  elif [[ -e "$source_sessions" && ! -L "$source_sessions" ]]; then
+    mv "$source_sessions" "$shared_sessions"
+    printf 'Created shared profile %s from %s sessions\n' "$shared_name" "$source"
+  else
+    mkdir -p "$shared_sessions"
+    printf 'Created empty shared profile %s\n' "$shared_name"
+  fi
+
+  point_sessions_at "$target" "$shared_sessions"
+  point_sessions_at "$source" "$shared_sessions"
+}
+
 resume_from_profile() {
   local target="$1"
   local source="$2"
   shift 2 || true
-  local target_dir source_dir target_sessions source_sessions current_link backup
+  local target_dir source_dir target_sessions source_sessions current_link backup link_check source_label
   local config_args=()
 
   [[ "$target" != "$source" ]] || die "source and target profiles must be different"
@@ -458,19 +552,31 @@ resume_from_profile() {
   source_dir="$(profile_dir "$source")"
   target_sessions="$target_dir/sessions"
   source_sessions="$source_dir/sessions"
+  source_label="$source"
 
-  [[ -d "$source_sessions" ]] || die "profile '$source' has no sessions directory"
+  [[ -e "$source_sessions" || -L "$source_sessions" ]] || die "profile '$source' has no sessions directory"
+  link_check=0
+  sessions_link_reaches "$source_sessions" "$target_sessions" || link_check=$?
+  if [[ "$link_check" -eq 0 ]]; then
+    printf "Detected that resuming from '%s' would create a sessions link loop with '%s'.\n" "$source" "$target"
+    create_shared_sessions_for_loop "$target" "$source" "$target_sessions" "$source_sessions"
+    source_label="$(shared_profile_name "$target" "$source")"
+    source_sessions="$(profile_dir "$source_label")/sessions"
+  elif [[ "$link_check" -eq 2 ]]; then
+    die "cannot resume from '$source': its sessions link chain appears to be a loop"
+  fi
+  [[ -d "$source_sessions" ]] || die "profile '$source' sessions path is not a directory"
 
   if [[ -L "$target_sessions" ]]; then
     current_link="$(readlink "$target_sessions")"
     if [[ "$current_link" == "$source_sessions" ]]; then
-      printf 'Profile %s already shares sessions from %s\n' "$target" "$source"
+      printf 'Profile %s already shares sessions from %s\n' "$target" "$source_label"
     else
       backup="$(next_backup_path "$target_sessions")"
       mv "$target_sessions" "$backup"
       ln -s "$source_sessions" "$target_sessions"
       printf 'Moved existing sessions link to %s\n' "$backup"
-      printf 'Profile %s now shares sessions from %s\n' "$target" "$source"
+      printf 'Profile %s now shares sessions from %s\n' "$target" "$source_label"
     fi
   else
     if [[ -e "$target_sessions" ]]; then
@@ -479,7 +585,7 @@ resume_from_profile() {
       printf 'Moved existing sessions to %s\n' "$backup"
     fi
     ln -s "$source_sessions" "$target_sessions"
-    printf 'Profile %s now shares sessions from %s\n' "$target" "$source"
+    printf 'Profile %s now shares sessions from %s\n' "$target" "$source_label"
   fi
 
   sync_profile_base_url_config "$target"
