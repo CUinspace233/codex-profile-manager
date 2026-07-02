@@ -423,9 +423,19 @@ list_profiles() {
 
 delete_profile() {
   local name="$1"
-  local dir
+  local dir referrers referrer
   dir="$(profile_dir "$name")"
   ensure_profile "$name"
+
+  referrers="$(profiles_referencing_sessions "$name")"
+  if [[ -n "$referrers" ]]; then
+    printf "codex-profile: cannot delete profile '%s'; its sessions are referenced by:\n" "$name" >&2
+    while IFS= read -r referrer; do
+      [[ -n "$referrer" ]] && printf '  %s\n' "$referrer" >&2
+    done <<< "$referrers"
+    die "repoint those profiles before deleting '$name'"
+  fi
+
   rm -rf -- "$dir"
   printf 'Deleted profile %s from %s\n' "$name" "$dir"
 }
@@ -469,6 +479,25 @@ sessions_link_reaches() {
   done
 
   return 1
+}
+
+profiles_referencing_sessions() {
+  local name="$1"
+  local target_sessions candidate candidate_name link_check
+  target_sessions="$(profile_dir "$name")/sessions"
+
+  for candidate in "$ROOT"/*/sessions; do
+    [[ -L "$candidate" ]] || continue
+    candidate_name="$(basename "$(dirname "$candidate")")"
+    [[ "$candidate_name" != "$name" ]] || continue
+
+    link_check=0
+    sessions_link_reaches "$candidate" "$target_sessions" || link_check=$?
+    if [[ "$link_check" -eq 0 ]]; then
+      printf '%s\n' "$candidate_name"
+    fi
+  done
+  return 0
 }
 
 shared_profile_name() {
@@ -516,11 +545,21 @@ create_shared_sessions_for_loop() {
   shared_dir="$(profile_dir "$shared_name")"
   shared_sessions="$shared_dir/sessions"
 
+  if [[ ! -e "$shared_sessions" && ! -L "$shared_sessions" ]] \
+    && [[ ! ( -e "$target_sessions" && ! -L "$target_sessions" ) ]] \
+    && [[ ! ( -e "$source_sessions" && ! -L "$source_sessions" ) ]]; then
+    die "cannot consolidate sessions for '$target' and '$source': neither profile owns a real sessions directory"
+  fi
+
   mkdir -p "$shared_dir"
   chmod 700 "$shared_dir" 2>/dev/null || true
 
   if [[ -e "$shared_sessions" || -L "$shared_sessions" ]]; then
     [[ -d "$shared_sessions" ]] || die "shared profile '$shared_name' sessions path is not a directory"
+    if [[ ( -e "$target_sessions" && ! -L "$target_sessions" ) ]] \
+      || [[ ( -e "$source_sessions" && ! -L "$source_sessions" ) ]]; then
+      die "shared profile '$shared_name' already exists alongside real sessions; reconcile them manually"
+    fi
     printf 'Using existing shared profile %s\n' "$shared_name"
   elif [[ -e "$target_sessions" && ! -L "$target_sessions" ]]; then
     mv "$target_sessions" "$shared_sessions"
@@ -528,9 +567,6 @@ create_shared_sessions_for_loop() {
   elif [[ -e "$source_sessions" && ! -L "$source_sessions" ]]; then
     mv "$source_sessions" "$shared_sessions"
     printf 'Created shared profile %s from %s sessions\n' "$shared_name" "$source"
-  else
-    mkdir -p "$shared_sessions"
-    printf 'Created empty shared profile %s\n' "$shared_name"
   fi
 
   point_sessions_at "$target" "$shared_sessions"
@@ -555,6 +591,11 @@ resume_from_profile() {
   source_label="$source"
 
   [[ -e "$source_sessions" || -L "$source_sessions" ]] || die "profile '$source' has no sessions directory"
+  if [[ -L "$source_sessions" && ! -e "$source_sessions" ]]; then
+    die "profile '$source' sessions link is dangling or cyclic; repair it before using resume-from"
+  fi
+  [[ -d "$source_sessions" ]] || die "profile '$source' sessions path is not a directory"
+
   link_check=0
   sessions_link_reaches "$source_sessions" "$target_sessions" || link_check=$?
   if [[ "$link_check" -eq 0 ]]; then

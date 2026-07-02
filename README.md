@@ -135,7 +135,13 @@ profile already has its own `sessions` directory, it is moved aside as
 If linking the target to the source would create a sessions symlink loop,
 `resume-from` creates a shared profile named `shared-<first>-<second>`, moves
 the real sessions directory there, and points both profiles at the shared
-sessions directory.
+sessions directory. It stops without changing either profile if the source
+sessions link is dangling or cyclic, or if neither side owns a real sessions
+directory that can be moved safely.
+
+`cx delete <name>` refuses to remove a profile while another profile's
+`sessions` link points to it. Repoint the dependent profile first so deletion
+cannot leave a dangling sessions link.
 
 ## Existing Login
 
